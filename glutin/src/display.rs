@@ -24,6 +24,8 @@ use crate::api::egl::display::Display as EglDisplay;
 use crate::api::glx::XlibErrorHookRegistrar;
 #[cfg(glx_backend)]
 use crate::api::glx::display::Display as GlxDisplay;
+#[cfg(trueos_backend)]
+use crate::api::trueos::display::Display as TrueOsDisplay;
 #[cfg(wgl_backend)]
 use crate::api::wgl::display::Display as WglDisplay;
 
@@ -191,6 +193,10 @@ pub enum Display {
     /// The CGL display.
     #[cfg(cgl_backend)]
     Cgl(CglDisplay),
+
+    /// The TRUEOS display.
+    #[cfg(trueos_backend)]
+    TrueOs(TrueOsDisplay),
 }
 
 impl Display {
@@ -253,6 +259,10 @@ impl Display {
             },
             #[cfg(cgl_backend)]
             DisplayApiPreference::Cgl => unsafe { Ok(Self::Cgl(CglDisplay::new(display)?)) },
+            #[cfg(trueos_backend)]
+            DisplayApiPreference::TrueOs => unsafe {
+                Ok(Self::TrueOs(TrueOsDisplay::new(display)?))
+            },
         }
     }
 }
@@ -285,6 +295,10 @@ impl GlDisplay for Display {
             Self::Cgl(display) => unsafe {
                 Ok(Box::new(display.find_configs(template)?.map(Config::Cgl)))
             },
+            #[cfg(trueos_backend)]
+            Self::TrueOs(display) => unsafe {
+                Ok(Box::new(display.find_configs(template)?.map(Config::TrueOs)))
+            },
         }
     }
 
@@ -309,6 +323,10 @@ impl GlDisplay for Display {
             #[cfg(cgl_backend)]
             (Self::Cgl(display), Config::Cgl(config)) => unsafe {
                 Ok(NotCurrentContext::Cgl(display.create_context(config, context_attributes)?))
+            },
+            #[cfg(trueos_backend)]
+            (Self::TrueOs(display), Config::TrueOs(config)) => unsafe {
+                Ok(NotCurrentContext::TrueOs(display.create_context(config, context_attributes)?))
             },
             _ => unreachable!(),
         }
@@ -336,6 +354,10 @@ impl GlDisplay for Display {
             (Self::Cgl(display), Config::Cgl(config)) => unsafe {
                 Ok(Surface::Cgl(display.create_window_surface(config, surface_attributes)?))
             },
+            #[cfg(trueos_backend)]
+            (Self::TrueOs(display), Config::TrueOs(config)) => unsafe {
+                Ok(Surface::TrueOs(display.create_window_surface(config, surface_attributes)?))
+            },
             _ => unreachable!(),
         }
     }
@@ -362,6 +384,10 @@ impl GlDisplay for Display {
             (Self::Cgl(display), Config::Cgl(config)) => unsafe {
                 Ok(Surface::Cgl(display.create_pbuffer_surface(config, surface_attributes)?))
             },
+            #[cfg(trueos_backend)]
+            (Self::TrueOs(display), Config::TrueOs(config)) => unsafe {
+                Ok(Surface::TrueOs(display.create_pbuffer_surface(config, surface_attributes)?))
+            },
             _ => unreachable!(),
         }
     }
@@ -387,6 +413,10 @@ impl GlDisplay for Display {
             #[cfg(cgl_backend)]
             (Self::Cgl(display), Config::Cgl(config)) => unsafe {
                 Ok(Surface::Cgl(display.create_pixmap_surface(config, surface_attributes)?))
+            },
+            #[cfg(trueos_backend)]
+            (Self::TrueOs(display), Config::TrueOs(config)) => unsafe {
+                Ok(Surface::TrueOs(display.create_pixmap_surface(config, surface_attributes)?))
             },
             _ => unreachable!(),
         }
@@ -463,6 +493,12 @@ pub enum DisplayApiPreference {
     #[cfg(cgl_backend)]
     Cgl,
 
+    /// Use only the TRUEOS vGPU UI4 surface Api.
+    ///
+    /// The only option on TRUEOS for now.
+    #[cfg(trueos_backend)]
+    TrueOs,
+
     /// Prefer EGL and fallback to GLX.
     ///
     /// See [`Egl`] and [`Glx`] to decide what you want.
@@ -519,6 +555,8 @@ impl fmt::Debug for DisplayApiPreference {
             DisplayApiPreference::WglThenEgl(_) => "WglThenEgl",
             #[cfg(cgl_backend)]
             DisplayApiPreference::Cgl => "Cgl",
+            #[cfg(trueos_backend)]
+            DisplayApiPreference::TrueOs => "TrueOs",
         };
 
         f.write_fmt(format_args!("DisplayApiPreference::{api}"))
@@ -593,4 +631,8 @@ pub enum RawDisplay {
     /// Raw display is CGL.
     #[cfg(cgl_backend)]
     Cgl,
+
+    /// The TRUEOS UI4 graphics connection capability.
+    #[cfg(trueos_backend)]
+    TrueOs(u64),
 }

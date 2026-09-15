@@ -17,6 +17,8 @@ use crate::api::cgl::surface::Surface as CglSurface;
 use crate::api::egl::surface::Surface as EglSurface;
 #[cfg(glx_backend)]
 use crate::api::glx::surface::Surface as GlxSurface;
+#[cfg(trueos_backend)]
+use crate::api::trueos::surface::Surface as TrueOsSurface;
 #[cfg(wgl_backend)]
 use crate::api::wgl::surface::Surface as WglSurface;
 
@@ -291,6 +293,10 @@ pub enum Surface<T: SurfaceTypeTrait> {
     /// The CGL surface.
     #[cfg(cgl_backend)]
     Cgl(CglSurface<T>),
+
+    /// The TRUEOS surface.
+    #[cfg(trueos_backend)]
+    TrueOs(TrueOsSurface<T>),
 }
 
 impl<T: SurfaceTypeTrait> GlSurface<T> for Surface<T> {
@@ -331,6 +337,10 @@ impl<T: SurfaceTypeTrait> GlSurface<T> for Surface<T> {
             (Self::Wgl(surface), PossiblyCurrentContext::Wgl(context)) => {
                 surface.swap_buffers(context)
             },
+            #[cfg(trueos_backend)]
+            (Self::TrueOs(surface), PossiblyCurrentContext::TrueOs(context)) => {
+                surface.swap_buffers(context)
+            },
             _ => unreachable!(),
         }
     }
@@ -351,6 +361,10 @@ impl<T: SurfaceTypeTrait> GlSurface<T> for Surface<T> {
             },
             #[cfg(wgl_backend)]
             (Self::Wgl(surface), PossiblyCurrentContext::Wgl(context)) => {
+                surface.set_swap_interval(context, interval)
+            },
+            #[cfg(trueos_backend)]
+            (Self::TrueOs(surface), PossiblyCurrentContext::TrueOs(context)) => {
                 surface.set_swap_interval(context, interval)
             },
             _ => unreachable!(),
@@ -375,6 +389,10 @@ impl<T: SurfaceTypeTrait> GlSurface<T> for Surface<T> {
             (Self::Wgl(surface), PossiblyCurrentContext::Wgl(context)) => {
                 surface.is_current(context)
             },
+            #[cfg(trueos_backend)]
+            (Self::TrueOs(surface), PossiblyCurrentContext::TrueOs(context)) => {
+                surface.is_current(context)
+            },
             _ => unreachable!(),
         }
     }
@@ -397,6 +415,10 @@ impl<T: SurfaceTypeTrait> GlSurface<T> for Surface<T> {
             (Self::Wgl(surface), PossiblyCurrentContext::Wgl(context)) => {
                 surface.is_current_draw(context)
             },
+            #[cfg(trueos_backend)]
+            (Self::TrueOs(surface), PossiblyCurrentContext::TrueOs(context)) => {
+                surface.is_current_draw(context)
+            },
             _ => unreachable!(),
         }
     }
@@ -417,6 +439,10 @@ impl<T: SurfaceTypeTrait> GlSurface<T> for Surface<T> {
             },
             #[cfg(wgl_backend)]
             (Self::Wgl(surface), PossiblyCurrentContext::Wgl(context)) => {
+                surface.is_current_read(context)
+            },
+            #[cfg(trueos_backend)]
+            (Self::TrueOs(surface), PossiblyCurrentContext::TrueOs(context)) => {
                 surface.is_current_read(context)
             },
             _ => unreachable!(),
@@ -442,6 +468,10 @@ impl<T: SurfaceTypeTrait> GlSurface<T> for Surface<T> {
             },
             #[cfg(wgl_backend)]
             (Self::Wgl(surface), PossiblyCurrentContext::Wgl(context)) => {
+                surface.resize(context, width, height)
+            },
+            #[cfg(trueos_backend)]
+            (Self::TrueOs(surface), PossiblyCurrentContext::TrueOs(context)) => {
                 surface.resize(context, width, height)
             },
             _ => unreachable!(),
@@ -526,6 +556,10 @@ pub enum RawSurface {
     /// Pointer to `NSView`.
     #[cfg(cgl_backend)]
     Cgl(*const std::ffi::c_void),
+
+    /// TRUEOS UI4 window id.
+    #[cfg(trueos_backend)]
+    TrueOs(u64),
 }
 
 /// The rect that is being used in various surface operations.

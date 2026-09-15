@@ -1,6 +1,7 @@
 //! OpenGL context creation and initialization.
 
 #![allow(unreachable_patterns)]
+#[cfg(any(egl_backend, glx_backend, wgl_backend, cgl_backend))]
 use std::ffi;
 
 use raw_window_handle::RawWindowHandle;
@@ -22,6 +23,11 @@ use crate::api::egl::context::{
 #[cfg(glx_backend)]
 use crate::api::glx::context::{
     NotCurrentContext as NotCurrentGlxContext, PossiblyCurrentContext as PossiblyCurrentGlxContext,
+};
+#[cfg(trueos_backend)]
+use crate::api::trueos::context::{
+    NotCurrentContext as NotCurrentTrueOsContext,
+    PossiblyCurrentContext as PossiblyCurrentTrueOsContext,
 };
 #[cfg(wgl_backend)]
 use crate::api::wgl::context::{
@@ -422,6 +428,10 @@ pub enum NotCurrentContext {
     /// The CGL context.
     #[cfg(cgl_backend)]
     Cgl(NotCurrentCglContext),
+
+    /// The TRUEOS context.
+    #[cfg(trueos_backend)]
+    TrueOs(NotCurrentTrueOsContext),
 }
 
 impl NotCurrentGlContext for NotCurrentContext {
@@ -458,6 +468,10 @@ impl NotCurrentGlContext for NotCurrentContext {
             #[cfg(cgl_backend)]
             (Self::Cgl(context), Surface::Cgl(surface)) => {
                 Ok(PossiblyCurrentContext::Cgl(context.make_current(surface)?))
+            },
+            #[cfg(trueos_backend)]
+            (Self::TrueOs(context), Surface::TrueOs(surface)) => {
+                Ok(PossiblyCurrentContext::TrueOs(context.make_current(surface)?))
             },
             _ => unreachable!(),
         }
@@ -557,6 +571,10 @@ pub enum PossiblyCurrentContext {
     /// The CGL context.
     #[cfg(cgl_backend)]
     Cgl(PossiblyCurrentCglContext),
+
+    /// The TRUEOS context.
+    #[cfg(trueos_backend)]
+    TrueOs(PossiblyCurrentTrueOsContext),
 }
 
 impl PossiblyCurrentGlContext for PossiblyCurrentContext {
@@ -591,6 +609,8 @@ impl PossiblyCurrentGlContext for PossiblyCurrentContext {
             (Self::Wgl(context), Surface::Wgl(surface)) => context.make_current(surface),
             #[cfg(cgl_backend)]
             (Self::Cgl(context), Surface::Cgl(surface)) => context.make_current(surface),
+            #[cfg(trueos_backend)]
+            (Self::TrueOs(context), Surface::TrueOs(surface)) => context.make_current(surface),
             _ => unreachable!(),
         }
     }
@@ -615,6 +635,10 @@ impl PossiblyCurrentGlContext for PossiblyCurrentContext {
             },
             #[cfg(cgl_backend)]
             (Self::Cgl(context), Surface::Cgl(draw), Surface::Cgl(read)) => {
+                context.make_current_draw_read(draw, read)
+            },
+            #[cfg(trueos_backend)]
+            (Self::TrueOs(context), Surface::TrueOs(draw), Surface::TrueOs(read)) => {
                 context.make_current_draw_read(draw, read)
             },
             _ => unreachable!(),
@@ -674,6 +698,10 @@ pub enum RawContext {
     /// Pointer to NSOpenGLContext.
     #[cfg(cgl_backend)]
     Cgl(*const ffi::c_void),
+
+    /// TRUEOS vGPU device handle.
+    #[cfg(trueos_backend)]
+    TrueOs(u64),
 }
 
 /// Priority hint

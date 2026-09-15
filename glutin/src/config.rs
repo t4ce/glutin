@@ -18,6 +18,8 @@ use crate::api::cgl::config::Config as CglConfig;
 use crate::api::egl::config::Config as EglConfig;
 #[cfg(glx_backend)]
 use crate::api::glx::config::Config as GlxConfig;
+#[cfg(trueos_backend)]
+use crate::api::trueos::config::Config as TrueOsConfig;
 #[cfg(wgl_backend)]
 use crate::api::wgl::config::Config as WglConfig;
 
@@ -444,6 +446,10 @@ pub enum Config {
     /// The CGL config.
     #[cfg(cgl_backend)]
     Cgl(CglConfig),
+
+    /// The TRUEOS config.
+    #[cfg(trueos_backend)]
+    TrueOs(TrueOsConfig),
 }
 
 impl GlConfig for Config {
@@ -527,6 +533,10 @@ pub enum RawConfig {
     /// NSOpenGLPixelFormat.
     #[cfg(cgl_backend)]
     Cgl(*const std::ffi::c_void),
+
+    /// The TRUEOS config has no native handle.
+    #[cfg(trueos_backend)]
+    TrueOs(u64),
 }
 
 impl AsRawConfig for Config {
