@@ -38,7 +38,9 @@ pub(crate) mod vcabi {
     }
 }
 
-/// Resolves TRUEOS GL entry points through the host's `trueos_gl` bridge.
+/// Resolves GL entry points through guest-side `trueos_gl` code linked into
+/// the Blueprint. Its returned pointers must be executable in the guest;
+/// GPU work then crosses to the host through the vGPU C ABI.
 pub(crate) mod trueos_gl {
     use std::ffi::{CStr, c_void};
 
