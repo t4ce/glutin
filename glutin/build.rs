@@ -7,8 +7,10 @@ fn main() {
     let unix = target_family.split(',').any(|family| family == "unix");
     let windows = env::var_os("CARGO_CFG_WINDOWS").is_some();
     let wasm = target_family.split(',').any(|family| family == "wasm");
-    let feature = |name: &str| env::var_os(format!("CARGO_FEATURE_{}", name.to_uppercase()).replace('-', "_")).is_some();
-    let mut alias = |name: &str, enabled: bool| {
+    let feature = |name: &str| {
+        env::var_os(format!("CARGO_FEATURE_{}", name.to_uppercase()).replace('-', "_")).is_some()
+    };
+    let alias = |name: &str, enabled: bool| {
         println!("cargo:rustc-check-cfg=cfg({name})");
         if enabled {
             println!("cargo:rustc-cfg={name}");

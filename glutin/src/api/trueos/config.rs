@@ -22,6 +22,14 @@ impl Display {
         if !template_is_satisfiable(&template) {
             return Ok(Box::new(iter::empty()));
         }
+        if let Some(RawWindowHandle::Trueos(window)) = template.native_window {
+            super::check_rc(unsafe {
+                super::vcabi::trueos_cabi_ui4_display_validate_window_v1(
+                    self.connection.get(),
+                    window.window.get(),
+                )
+            })?;
+        }
 
         let inner = Arc::new(ConfigInner { display: self.clone() });
         Ok(Box::new(iter::once(Config { inner })))
@@ -33,11 +41,11 @@ impl Display {
 /// `find_configs` therefore filters the requested template against that fixed
 /// configuration instead of enumerating anything.
 fn template_is_satisfiable(template: &ConfigTemplate) -> bool {
-    matches!(template.color_buffer_type, ColorBufferType::Rgb { r_size: 8, g_size: 8, b_size: 8 })
+    matches!(template.color_buffer_type, ColorBufferType::Rgb { r_size, g_size, b_size } if r_size <= 8 && g_size <= 8 && b_size <= 8)
         && template.alpha_size <= 8
         && template.depth_size == 0
         && template.stencil_size == 0
-        && template.num_samples.is_none()
+        && template.num_samples.is_none_or(|samples| samples == 0)
         && !template.float_pixels
         && !template.single_buffering
         && template.stereoscopy != Some(true)
@@ -93,7 +101,7 @@ impl GlConfig for Config {
     }
 
     fn srgb_capable(&self) -> bool {
-        true
+        false
     }
 
     fn hardware_accelerated(&self) -> bool {

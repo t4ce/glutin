@@ -18,9 +18,10 @@ glx = ["x11", "glutin_glx_sys", "libloading"]
 wgl = ["glutin_wgl_sys", "windows-sys"]
 x11 = ["x11-dl"]
 wayland = ["wayland-sys", "egl"]
-trueos = []
+trueos = ["dep:trueos-gl"]
 
 [dependencies]
+trueos-gl = { version = "0.1.0", path = "../trueos-gl", optional = true }
 bitflags = "2.2.1"
 libloading = { version = "0.8.0", optional = true }
 once_cell = "1.13"

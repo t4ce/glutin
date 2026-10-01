@@ -2,6 +2,7 @@
 resolver = "3"
 members = [
     "glutin",
+    "trueos-gl",
     "glutin-winit",
     "glutin_examples",
     "glutin_egl_sys",

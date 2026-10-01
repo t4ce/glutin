@@ -1,6 +1,5 @@
 //! A TRUEOS vGPU UI4 window surface.
 
-use std::cell::Cell;
 use std::fmt;
 use std::marker::PhantomData;
 use std::num::NonZeroU32;
@@ -19,7 +18,7 @@ use crate::surface::{
 use super::config::Config;
 use super::context::PossiblyCurrentContext;
 use super::display::Display;
-use super::vcabi;
+use super::{gl, vcabi};
 
 impl Display {
     pub(crate) unsafe fn create_pixmap_surface(
@@ -52,22 +51,31 @@ impl Display {
             },
         };
 
+        if config.display().connection != self.connection {
+            return Err(ErrorKind::BadMatch.into());
+        }
+        super::check_rc(unsafe {
+            vcabi::trueos_cabi_ui4_display_validate_window_v1(
+                self.connection.get(),
+                window_id.get(),
+            )
+        })?;
+        if surface_attributes.srgb == Some(true) || surface_attributes.single_buffer {
+            return Err(ErrorKind::NotSupported(
+                "sRGB conversion and single buffering are not supported",
+            )
+            .into());
+        }
+        let width = surface_attributes.width.ok_or(ErrorKind::BadSurface)?.get();
+        let height = surface_attributes.height.ok_or(ErrorKind::BadSurface)?.get();
         Ok(Surface {
             display: self.clone(),
             config: config.clone(),
             window_id,
-            bound: Cell::new(None),
+            runtime: gl::Surface::new(window_id.get(), width, height),
             _ty: PhantomData,
         })
     }
-}
-
-/// The vGPU surface acquired for a UI4 window while it is bound to a context.
-#[derive(Debug, Clone, Copy)]
-struct BoundSurface {
-    surface: u64,
-    width: u32,
-    height: u32,
 }
 
 /// A TRUEOS vGPU surface backed by a UI4 window.
@@ -75,36 +83,8 @@ pub struct Surface<T: SurfaceTypeTrait> {
     display: Display,
     config: Config,
     window_id: NonZeroU32,
-    bound: Cell<Option<BoundSurface>>,
+    pub(super) runtime: gl::Surface,
     _ty: PhantomData<T>,
-}
-
-impl<T: SurfaceTypeTrait> Surface<T> {
-    /// Acquire the vGPU surface backing this window for `device`, returning
-    /// its opaque handle.
-    pub(crate) fn acquire(&self, device: u64) -> Result<u64> {
-        let mut info = vcabi::SurfaceInfo::default();
-        super::check_rc(unsafe {
-            vcabi::trueos_cabi_vgpu_ui4_surface_acquire(device, self.window_id.get(), &mut info)
-        })?;
-
-        if info.surface == 0
-            || info.width == 0
-            || info.height == 0
-            || info.pitch < info.width.saturating_mul(4)
-            || info.format != vcabi::SURFACE_FORMAT_RGBA8_UNORM_SRGB
-        {
-            return Err(ErrorKind::BadSurface.into());
-        }
-
-        self.bound.set(Some(BoundSurface {
-            surface: info.surface,
-            width: info.width,
-            height: info.height,
-        }));
-
-        Ok(info.surface)
-    }
 }
 
 impl<T: SurfaceTypeTrait> GlSurface<T> for Surface<T> {
@@ -116,32 +96,33 @@ impl<T: SurfaceTypeTrait> GlSurface<T> for Surface<T> {
     }
 
     fn width(&self) -> Option<u32> {
-        self.bound.get().map(|bound| bound.width)
+        Some(self.runtime.size().0)
     }
 
     fn height(&self) -> Option<u32> {
-        self.bound.get().map(|bound| bound.height)
+        Some(self.runtime.size().1)
     }
 
     fn is_single_buffered(&self) -> bool {
         false
     }
 
-    fn swap_buffers(&self, _context: &Self::Context) -> Result<()> {
-        // Presentation happens as part of the vGPU submit calls that already
-        // reference the acquired surface handle directly.
-        Ok(())
+    fn swap_buffers(&self, context: &Self::Context) -> Result<()> {
+        context.inner.runtime.swap(&self.runtime).map_err(super::error_from_rc)
     }
 
-    fn set_swap_interval(&self, _context: &Self::Context, _interval: SwapInterval) -> Result<()> {
-        Err(ErrorKind::NotSupported("swap intervals are not supported with TRUEOS").into())
+    fn set_swap_interval(&self, context: &Self::Context, interval: SwapInterval) -> Result<()> {
+        if !self.is_current(context) {
+            return Err(ErrorKind::BadContext.into());
+        }
+        match interval {
+            SwapInterval::Wait(value) if value.get() == 1 => Ok(()),
+            _ => Err(ErrorKind::NotSupported("TRUEOS supports fixed FIFO presentation").into()),
+        }
     }
 
     fn is_current(&self, context: &Self::Context) -> bool {
-        match self.bound.get() {
-            Some(bound) => context.inner.is_surface_current(bound.surface),
-            None => false,
-        }
+        context.inner.runtime.is_surface_current(&self.runtime)
     }
 
     fn is_current_draw(&self, context: &Self::Context) -> bool {
@@ -152,9 +133,10 @@ impl<T: SurfaceTypeTrait> GlSurface<T> for Surface<T> {
         self.is_current(context)
     }
 
-    fn resize(&self, _context: &Self::Context, _width: NonZeroU32, _height: NonZeroU32) {
-        // The UI4 compositor determines the surface size; it is refreshed on
-        // the next `make_current` acquisition.
+    fn resize(&self, context: &Self::Context, width: NonZeroU32, height: NonZeroU32) {
+        if let Err(error) = context.inner.runtime.resize(&self.runtime, width.get(), height.get()) {
+            context.inner.runtime.record_failure(error);
+        }
     }
 }
 

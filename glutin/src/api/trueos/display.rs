@@ -1,8 +1,8 @@
 //! A TRUEOS display.
 
 use std::ffi::{self, CStr};
-use std::marker::PhantomData;
 use std::num::NonZeroU64;
+use std::sync::Arc;
 
 use raw_window_handle::RawDisplayHandle;
 
@@ -17,14 +17,24 @@ use crate::surface::{PbufferSurface, PixmapSurface, SurfaceAttributes, WindowSur
 use super::config::Config;
 use super::context::NotCurrentContext;
 use super::surface::Surface;
-use super::trueos_gl;
+use super::{gl, vcabi};
 
 /// The TRUEOS display.
 #[derive(Debug, Clone)]
 pub struct Display {
     /// Host-issued UI4 graphics connection capability.
     pub(crate) connection: NonZeroU64,
-    _marker: PhantomData<()>,
+    _connection: Arc<Connection>,
+}
+
+#[derive(Debug)]
+struct Connection(NonZeroU64);
+impl Drop for Connection {
+    fn drop(&mut self) {
+        unsafe {
+            vcabi::trueos_cabi_ui4_display_close_v1(self.0.get());
+        }
+    }
 }
 
 impl Display {
@@ -32,12 +42,19 @@ impl Display {
     ///
     /// # Safety
     ///
-    /// The `connection` capability carried by `display` must remain valid for
-    /// the entire lifetime of this object and everything created with it.
+    /// The `connection` capability carried by `display` must be valid at this
+    /// call. The display retains its own host reference for all derived
+    /// objects.
     pub unsafe fn new(display: RawDisplayHandle) -> Result<Self> {
         match display {
             RawDisplayHandle::Trueos(handle) => {
-                Ok(Display { connection: handle.connection, _marker: PhantomData })
+                super::check_rc(unsafe {
+                    vcabi::trueos_cabi_ui4_display_retain_v1(handle.connection.get())
+                })?;
+                Ok(Display {
+                    connection: handle.connection,
+                    _connection: Arc::new(Connection(handle.connection)),
+                })
             },
             _ => Err(ErrorKind::NotSupported("provided native display is not supported").into()),
         }
@@ -91,11 +108,11 @@ impl GlDisplay for Display {
     }
 
     fn get_proc_address(&self, addr: &CStr) -> *const ffi::c_void {
-        trueos_gl::resolve(addr)
+        gl::resolve(addr)
     }
 
     fn version_string(&self) -> String {
-        String::from("TRUEOS vGPU UI4")
+        String::from("TRUEOS GLES 2 AOT")
     }
 
     fn supported_features(&self) -> DisplayFeatures {

@@ -1,6 +1,5 @@
 //! TRUEOS vGPU context.
 
-use std::cell::Cell;
 use std::fmt;
 
 use crate::config::GetGlConfig;
@@ -15,13 +14,8 @@ use crate::surface::SurfaceTypeTrait;
 
 use super::config::Config;
 use super::display::Display;
+use super::gl;
 use super::surface::Surface;
-use super::vcabi;
-
-thread_local! {
-    /// The `device` handle of the TRUEOS context that is current on this thread, if any.
-    static CURRENT_DEVICE: Cell<Option<u64>> = const { Cell::new(None) };
-}
 
 impl Display {
     pub(crate) unsafe fn create_context(
@@ -37,17 +31,22 @@ impl Display {
             return Err(ErrorKind::NotSupported("robustness is not supported with TRUEOS").into());
         }
 
-        let mut device = 0u64;
-        super::check_rc(unsafe {
-            vcabi::trueos_cabi_vgpu_open(super::CAPABILITIES_RENDER_PRESENT, &mut device)
-        })?;
-
-        let inner = ContextInner {
-            display: self.clone(),
-            config: config.clone(),
-            device,
-            current_surface: Cell::new(None),
-        };
+        if config.display().connection != self.connection {
+            return Err(ErrorKind::BadMatch.into());
+        }
+        if context_attributes.shared_context.is_some() || context_attributes.profile.is_some() {
+            return Err(ErrorKind::NotSupported(
+                "context sharing and desktop profiles are not supported",
+            )
+            .into());
+        }
+        if matches!(context_attributes.api, Some(ContextApi::Gles(Some(version)))
+            if version != crate::context::Version::new(2, 0))
+        {
+            return Err(ErrorKind::NotSupported("TRUEOS profile 0 requires GLES 2.0").into());
+        }
+        let runtime = gl::Context::new().map_err(super::error_from_rc)?;
+        let inner = ContextInner { display: self.clone(), config: config.clone(), runtime };
 
         Ok(NotCurrentContext { inner })
     }
@@ -116,7 +115,7 @@ impl GetGlDisplay for NotCurrentContext {
 
 impl AsRawContext for NotCurrentContext {
     fn raw_context(&self) -> RawContext {
-        RawContext::TrueOs(self.inner.device)
+        RawContext::TrueOs(self.inner.runtime.id())
     }
 }
 
@@ -192,7 +191,7 @@ impl GetGlDisplay for PossiblyCurrentContext {
 
 impl AsRawContext for PossiblyCurrentContext {
     fn raw_context(&self) -> RawContext {
-        RawContext::TrueOs(self.inner.device)
+        RawContext::TrueOs(self.inner.runtime.id())
     }
 }
 
@@ -201,55 +200,27 @@ impl Sealed for PossiblyCurrentContext {}
 pub(crate) struct ContextInner {
     display: Display,
     config: Config,
-    /// The vGPU device handle backing this context, doubling as its raw
-    /// context id.
-    pub(crate) device: u64,
-    /// The vGPU surface handle currently bound to this context, if any.
-    current_surface: Cell<Option<u64>>,
+    pub(super) runtime: gl::Context,
 }
 
 impl ContextInner {
     fn make_current<T: SurfaceTypeTrait>(&self, surface: &Surface<T>) -> Result<()> {
-        let bound = surface.acquire(self.device)?;
-        self.current_surface.set(Some(bound));
-        CURRENT_DEVICE.with(|current| current.set(Some(self.device)));
-        Ok(())
+        if self.display.connection != surface.display().connection {
+            return Err(ErrorKind::BadMatch.into());
+        }
+        self.runtime.make_current(&surface.runtime).map_err(super::error_from_rc)
     }
 
     fn make_not_current(&self) -> Result<()> {
-        if let Some(surface) = self.current_surface.take() {
-            super::check_rc(unsafe {
-                vcabi::trueos_cabi_vgpu_ui4_surface_discard(self.device, surface)
-            })?;
-        }
-
-        CURRENT_DEVICE.with(|current| {
-            if current.get() == Some(self.device) {
-                current.set(None);
-            }
-        });
-
-        Ok(())
+        self.runtime.make_not_current().map_err(super::error_from_rc)
     }
 
     fn is_current(&self) -> bool {
-        CURRENT_DEVICE.with(|current| current.get() == Some(self.device))
-    }
-
-    pub(crate) fn is_surface_current(&self, surface: u64) -> bool {
-        self.is_current() && self.current_surface.get() == Some(surface)
+        self.runtime.is_current()
     }
 
     fn context_api(&self) -> ContextApi {
-        ContextApi::Gles(None)
-    }
-}
-
-impl Drop for ContextInner {
-    fn drop(&mut self) {
-        unsafe {
-            vcabi::trueos_cabi_vgpu_close(self.device);
-        }
+        ContextApi::Gles(Some(crate::context::Version::new(2, 0)))
     }
 }
 
@@ -257,7 +228,7 @@ impl fmt::Debug for ContextInner {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Context")
             .field("config", &self.config)
-            .field("device", &self.device)
+            .field("runtime", &self.runtime)
             .finish()
     }
 }
